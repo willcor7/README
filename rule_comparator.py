@@ -14,7 +14,7 @@ ALLOWED_ACTIONS = {"pass", "block", "drop", "bypass", "deleg", "reset", "log", "
 CSV_TO_NSRPC_MAP = {
     "rule_name": "rulename", "comment": "comment", "state": "state", "action": "action",
     "count": "count", "rate": "rate", "set_tos": "settos", "inspection": "inspection",
-    "service": "fwservice", "log_level": "loglevel", "schedule": "schedule",
+    "service": "service", "log_level": "loglevel", "schedule": "schedule",
     "route": "route", "no_conn_log": "noconnlog", "tos": "tos", "ip_proto": "ipproto",
     "proto": "proto", "from_user_type": "srcusertype", "from_user_domain": "srcuserdomain",
     "from_user_method": "srcusermethod", "from_src": "srctarget", "from_geo": "srcgeo",

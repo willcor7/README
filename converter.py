@@ -60,9 +60,12 @@ CSV_ALIASES = {
     "log_level": ["log_level", "loglevel"],
 }
 
-NAT_ONLY_TOKENS = {
-    "beforevpn", "natsrctarget", "natsrcarp", "natsrcport", "natsrclb",
-    "natdsttarget", "natdstarp", "natdstport", "natdstlb",
+VALID_FILTER_TOKENS = {
+    "rulename", "comment", "state", "action", "count", "rate", "settos",
+    "inspection", "service", "loglevel", "schedule", "route", "noconnlog",
+    "tos", "ipproto", "proto", "srcusertype", "srcuserdomain", "srcusermethod",
+    "srctarget", "srcgeo", "srciprep", "srchostrep", "srcport", "srcif", "via",
+    "dsttarget", "dstgeo", "dstiprep", "dsthostrep", "dstport", "dstif"
 }
 
 
@@ -314,7 +317,7 @@ def build_filter_cmd(row: Dict[str, str], prefix: str, default_slot: int, positi
 
     for csv_key, nsrpc_token in CSV_TO_NSRPC_MAP.items():
         if csv_key in ["rule_name", "comment"]: continue
-        if nsrpc_token in NAT_ONLY_TOKENS: continue # Exclude NAT params from filter rules
+        if nsrpc_token not in VALID_FILTER_TOKENS: continue # Allow only specific filter params
 
         aliases = CSV_ALIASES.get(csv_key, [csv_key])
         value = pick(row, aliases)

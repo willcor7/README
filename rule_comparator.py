@@ -108,60 +108,83 @@ def read_csv(path: Path) -> List[Dict[str, str]]:
         final_rows.append(row_dict)
     return final_rows
 
-def build_rule_cmd(row: Dict[str, str], default_slot: int, position: int) -> Tuple[Optional[str], Optional[str]]:
+def classify_row(row: Dict[str, str]) -> str:
+    type_slot = pick(row, ["type_slot"])
+    if "nat" in type_slot.lower():
+        return "NAT"
+    if pick(row, ["action"]).lower() == "nat":
+        return "NAT"
+    if pick(row, ["nat_from_target"]) or pick(row, ["nat_to_target"]):
+        return "NAT"
+    return "FILTER"
+
+def build_filter_cmd(row: Dict[str, str], default_slot: int, position: int) -> Tuple[Optional[str], Optional[str]]:
     parts = ["CONFIG FILTER RULE INSERT"]
-
-    type_slot_raw = pick(row, ["type_slot"])
-    slot, rtype = None, None
-    if type_slot_raw:
-        match = re.search(r'(filter|nat)_slot_(\d+)', type_slot_raw)
-        if match:
-            rtype, slot_str = match.groups()
-            slot = int(slot_str)
-        else:
-            rtype = "nat" if "nat" in type_slot_raw.lower() else "filter"
-
-    if not rtype:
-        rtype = "nat" if pick(row, ["action"]).lower() == "nat" or pick(row, ["nat_from_target"]) or pick(row, ["nat_to_target"]) else "filter"
-
-    if slot is None:
-        slot_str = pick(row, ["policy", "slot", "index"])
-        slot = int(slot_str) if slot_str.isdigit() else default_slot
-
-    parts.extend([f"index={slot}", f"type={rtype}", f"position={position}"])
+    slot_str = pick(row, ["policy", "slot", "index"])
+    slot = int(slot_str) if slot_str.isdigit() else default_slot
+    parts.extend([f"index={slot}", "type=filter", f"position={position}"])
 
     rule_name = pick(row, CSV_ALIASES.get("rule_name", ["rule_name"]))
     comment = pick(row, CSV_ALIASES.get("comment", ["comment"]))
     if not rule_name:
-        rule_name = comment if comment else f"Rule-{position:04d}"
-        if rule_name == comment:
-            comment = ""
+        rule_name = comment if comment else f"FilterRule-{position:04d}"
+        if rule_name == comment: comment = ""
 
     nfkd = unicodedata.normalize("NFKD", rule_name.replace("\n", " ").strip())
     rule_name = "".join(c for c in nfkd if not unicodedata.combining(c))
-    if len(rule_name) > 64:
-        rule_name = rule_name[:61] + "..."
-    if rule_name:
-        parts.append(f"rulename={format_nsrpc_param(rule_name)}")
+    if len(rule_name) > 64: rule_name = rule_name[:61] + "..."
+    if rule_name: parts.append(f"rulename={format_nsrpc_param(rule_name)}")
 
     if comment: row["comment"] = comment
     elif "comment" in row: del row["comment"]
 
     for csv_key, nsrpc_token in CSV_TO_NSRPC_MAP.items():
-        if csv_key in ["rule_name", "comment"]:
-            continue
+        if csv_key in ["rule_name", "comment"]: continue
         aliases = CSV_ALIASES.get(csv_key, [csv_key])
         value = pick(row, aliases)
         if value:
             if nsrpc_token == "action":
-                coerced = coerce_action(value)
-                if not coerced: return None, f"action inconnue ou non autorisée: {value!r}"
-                value = coerced
-
-            # Special handling for ipproto to extract only the protocol name
+                value = coerce_action(value)
+                if not value: return None, f"action de filtre inconnue: {pick(row, aliases)!r}"
             if nsrpc_token == "ipproto" and "," in value:
                 value = value.split(',')[0]
+            parts.append(f"{nsrpc_token}={format_nsrpc_param(value)}")
 
+    cmd = " ".join(parts)
+    return (cmd, None) if len(cmd) <= MAX_NSRPC_LINE else (None, "ligne NSRPC générée trop longue")
+
+def build_nat_cmd(row: Dict[str, str], default_slot: int, position: int) -> Tuple[Optional[str], Optional[str]]:
+    parts = ["CONFIG FILTER RULE INSERT"]
+    slot_str = pick(row, ["policy", "slot", "index"])
+    slot = int(slot_str) if slot_str.isdigit() else default_slot
+    parts.extend([f"index={slot}", "type=nat", "action=nat", f"position={position}"])
+
+    rule_name = pick(row, CSV_ALIASES.get("rule_name", ["rule_name"]))
+    comment = pick(row, CSV_ALIASES.get("comment", ["comment"]))
+    if not rule_name:
+        rule_name = comment if comment else f"NatRule-{position:04d}"
+        if rule_name == comment: comment = ""
+
+    nfkd = unicodedata.normalize("NFKD", rule_name.replace("\n", " ").strip())
+    rule_name = "".join(c for c in nfkd if not unicodedata.combining(c))
+    if len(rule_name) > 64: rule_name = rule_name[:61] + "..."
+    if rule_name: parts.append(f"rulename={format_nsrpc_param(rule_name)}")
+
+    if comment: row["comment"] = comment
+    elif "comment" in row: del row["comment"]
+
+    if 'dstport' not in row or not row['dstport']:
+        service_val = pick(row, CSV_ALIASES.get('service', ['service']))
+        if service_val:
+            row['dstport'] = service_val
+
+    for csv_key, nsrpc_token in CSV_TO_NSRPC_MAP.items():
+        if csv_key in ["rule_name", "comment", "action", "service"]: continue
+        aliases = CSV_ALIASES.get(csv_key, [csv_key])
+        value = pick(row, aliases)
+        if value:
+            if nsrpc_token == "ipproto" and "," in value:
+                value = value.split(',')[0]
             parts.append(f"{nsrpc_token}={format_nsrpc_param(value)}")
 
     cmd = " ".join(parts)
@@ -229,9 +252,12 @@ def main():
 
     cli_commands = []
     for i, rule_data in enumerate(missing_rules, start=1):
-        # The comparator does not need dependency checking or host creation,
-        # it just generates the command for what's missing.
-        cmd, err = build_rule_cmd(rule_data, args.policy_index, i)
+        rtype = classify_row(rule_data)
+        if rtype == "NAT":
+            cmd, err = build_nat_cmd(rule_data, args.policy_index, i)
+        else: # Default to FILTER
+            cmd, err = build_filter_cmd(rule_data, args.policy_index, i)
+
         if cmd:
             cli_commands.append(cmd)
         else:

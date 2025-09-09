@@ -60,6 +60,11 @@ CSV_ALIASES = {
     "log_level": ["log_level", "loglevel"],
 }
 
+NAT_ONLY_TOKENS = {
+    "beforevpn", "natsrctarget", "natsrcarp", "natsrcport", "natsrclb",
+    "natdsttarget", "natdstarp", "natdstport", "natdstlb",
+}
+
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
@@ -305,12 +310,12 @@ def build_filter_cmd(row: Dict[str, str], prefix: str, default_slot: int, positi
     rule_name = "".join(c for c in nfkd if not unicodedata.combining(c))
     if len(rule_name) > 64: rule_name = rule_name[:61] + "..."
     if rule_name: parts.append(f"rulename={format_nsrpc_param(rule_name)}")
-
-    if comment: row["comment"] = comment
-    elif "comment" in row: del row["comment"]
+    if comment: parts.append(f"comment={format_nsrpc_param(comment)}")
 
     for csv_key, nsrpc_token in CSV_TO_NSRPC_MAP.items():
         if csv_key in ["rule_name", "comment"]: continue
+        if nsrpc_token in NAT_ONLY_TOKENS: continue # Exclude NAT params from filter rules
+
         aliases = CSV_ALIASES.get(csv_key, [csv_key])
         value = pick(row, aliases)
         if value:
@@ -346,9 +351,7 @@ def build_nat_cmd(row: Dict[str, str], prefix: str, default_slot: int, position:
     rule_name = "".join(c for c in nfkd if not unicodedata.combining(c))
     if len(rule_name) > 64: rule_name = rule_name[:61] + "..."
     if rule_name: parts.append(f"rulename={format_nsrpc_param(rule_name)}")
-
-    if comment: row["comment"] = comment
-    elif "comment" in row: del row["comment"]
+    if comment: parts.append(f"comment={format_nsrpc_param(comment)}")
 
     # Handle port mapping: service -> dstport for NAT rules
     if 'dstport' not in row or not row['dstport']:

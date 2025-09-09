@@ -334,6 +334,11 @@ def build_rule_cmd(row: Dict[str, str], prefix: str, default_slot: int, position
                 coerced = coerce_action(value)
                 if not coerced: return None, f"action inconnue ou non autorisée: {value!r}"
                 value = coerced
+
+            # Special handling for ipproto to extract only the protocol name
+            if nsrpc_token == "ipproto" and "," in value:
+                value = value.split(',')[0]
+
             parts.append(f"{nsrpc_token}={format_nsrpc_param(value)}")
 
     cmd = " ".join(parts)

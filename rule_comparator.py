@@ -1,6 +1,19 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Détecte les règles de pare-feu en double dans un ou plusieurs fichiers CSV Stormshield.
+
+Ce script identifie les doublons en se basant sur une combinaison de champs clés :
+- Source
+- Destination
+- Port de destination
+- Protocole
+
+Les commentaires et autres champs peuvent différer.
+"""
+
 import argparse
 import csv
-import sys
 import re
 import unicodedata
 from pathlib import Path

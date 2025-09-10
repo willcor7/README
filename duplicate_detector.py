@@ -81,11 +81,13 @@ def read_csv(path: Path) -> List[Dict[str, str]]:
         padded_fields = fields + [""] * (len(cleaned_headers) - len(fields))
         row_dict = dict(zip(cleaned_headers, padded_fields[:len(cleaned_headers)]))
 
-        # Ajouter le numéro de ligne original pour le rapport
-        row_dict['original_line'] = header_line_index + 2 + i
-
+        # Nettoyer les valeurs textuelles d'abord
         for key, value in row_dict.items():
             row_dict[key] = value.strip().strip('"') if value is not None else ""
+
+        # Ajouter le numéro de ligne original (entier) APRÈS le nettoyage
+        row_dict['original_line'] = header_line_index + 2 + i
+
         final_rows.append(row_dict)
 
     return final_rows

@@ -25,6 +25,7 @@ import datetime
 import re
 import sys
 import unicodedata
+from itertools import zip_longest
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional
 
@@ -433,7 +434,9 @@ def main() -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
     known_objects = parse_objects_file(Path(args.objects_file) if args.objects_file else None)
     known_interfaces = parse_interfaces_file(Path(args.interfaces_file) if args.interfaces_file else None)
-    all_rows = []
+
+    # --- New Interleaved Reading Logic ---
+    list_of_row_lists = []
     for csv_path_str in args.csv:
         in_path = Path(csv_path_str)
         if not in_path.exists():
@@ -441,11 +444,20 @@ def main() -> int:
             continue
         try:
             rows = read_csv(in_path)
-            all_rows.extend(rows)
+            list_of_row_lists.append(rows)
             print(f"[INFO] Lu {len(rows)} lignes depuis {in_path}")
         except Exception as e:
             print(f"[ERROR] Lecture CSV échouée pour {in_path}: {e}", file=sys.stderr)
             continue
+
+    # Interleave the rows from all files
+    all_rows = []
+    for row_tuple in zip_longest(*list_of_row_lists, fillvalue=None):
+        for row in row_tuple:
+            if row is not None:
+                all_rows.append(row)
+
+    # --- The rest of the processing logic remains the same ---
     safe_commands, pending_rules, all_missing_dependencies = [], [], set()
     num_pending_rules = 0
     created_host_ips = set()

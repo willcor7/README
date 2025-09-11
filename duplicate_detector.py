@@ -112,46 +112,64 @@ def find_duplicates(rows: List[Dict[str, str]]) -> Dict:
         occurrence = {
             "file": row.get("source_file", "N/A"),
             "line": row.get("original_line", "N/A"),
-            "name": pick(row, ["rule_name"]) or "Sans nom"
+            "name": pick(row, ["rule_name"]) or "Sans nom",
+            "nat_line": row.get("nat_line")  # Sera None pour les règles de filtrage
         }
         seen_rules.setdefault(signature, []).append(occurrence)
 
     return {sig: occs for sig, occs in seen_rules.items() if len(occs) > 1}
 
-def format_as_markdown(duplicates: Dict) -> str:
+def format_as_markdown(duplicates: Dict, report_type: str = 'rules') -> str:
     """
     Formate un dictionnaire de doublons en une table Markdown détaillée et lisible.
-    Chaque occurrence de doublon est sur sa propre ligne pour plus de clarté.
+    Prend en charge un format spécial pour les règles NAT avec une numérotation de ligne relative.
     """
     if not duplicates:
         return "Aucun doublon détecté."
 
-    lines = [
-        "| Source | Destination | Port | Protocole | Fichier | Ligne | Nom de la règle |",
-        "|---|---|---|---|---|---|---|"
-    ]
+    is_nat_report = report_type == 'nat'
 
-    for sig, occs in duplicates.items():
+    if is_nat_report:
+        lines = [
+            "| Source | Destination | Port | Protocole | Fichier | Ligne (Fichier) | Ligne (NAT) | Nom de la règle |",
+            "|---|---|---|---|---|---|---|---|"
+        ]
+    else:
+        lines = [
+            "| Source | Destination | Port | Protocole | Fichier | Ligne | Nom de la règle |",
+            "|---|---|---|---|---|---|---|"
+        ]
+
+    # Trier les groupes de doublons par leur première apparition (fichier, ligne)
+    sorted_signatures = sorted(duplicates.keys(), key=lambda sig: (duplicates[sig][0]['file'], duplicates[sig][0]['line']))
+
+    for sig in sorted_signatures:
+        occs = duplicates[sig]
         source, dest, port, proto = sig
-        # Trier les occurrences par nom de fichier puis par numéro de ligne
-        sorted_occs = sorted(occs, key=lambda x: (x['file'], x['line']))
+
+        # Trier les occurrences au sein d'un groupe par nom de fichier puis par numéro de ligne
+        sort_key = 'nat_line' if is_nat_report else 'line'
+        sorted_occs = sorted(occs, key=lambda x: (x['file'], x.get(sort_key, 0)))
+
         for i, occ in enumerate(sorted_occs):
             file = f"`{occ['file']}`"
             line = f"`{occ['line']}`"
-            name = f"`{occ['name']}`" # Les guillemets sont déjà dans le nom si présents
+            name = f"`{occ['name']}`"
 
-            # Pour la lisibilité, on ne répète la signature que sur la première ligne du groupe
-            if i == 0:
-                lines.append(f"| {source} | {dest} | {port} | {proto} | {file} | {line} | {name} |")
+            s, d, p, pr = (source, dest, port, proto) if i == 0 else ('', '', '', '')
+
+            if is_nat_report:
+                nat_line_val = f"`{occ.get('nat_line', 'N/A')}`"
+                lines.append(f"| {s} | {d} | {p} | {pr} | {file} | {line} | {nat_line_val} | {name} |")
             else:
-                lines.append(f"| | | | | {file} | {line} | {name} |")
+                lines.append(f"| {s} | {d} | {p} | {pr} | {file} | {line} | {name} |")
 
-        # Ajouter une ligne de séparation entre les groupes de doublons pour plus de clarté
-        lines.append("| | | | | | | |")
-
+        # Ajouter une ligne de séparation visuelle (compatible Markdown)
+        separator_row = "| " + " &nbsp; | " * (8 if is_nat_report else 7)
+        lines.append(separator_row)
 
     # Retirer la dernière ligne de séparation si elle existe
-    if lines[-1] == "| | | | | | | |":
+    if lines and "&nbsp;" in lines[-1]:
         lines.pop()
 
     return "\n".join(lines)
@@ -195,21 +213,27 @@ def main():
         print("Aucune ligne à analyser.")
         return
 
-    # Séparer les lignes en règles (filter) et NAT
-    rules_rows = [row for row in all_rows if "local_filter_slot" in str(row.values())]
-    nat_rows = [row for row in all_rows if "local_nat_slot" in str(row.values())]
+    # Séparer les lignes en règles (filter) et NAT de manière robuste
+    rules_rows = [row for row in all_rows if any("local_filter_slot" in str(v) for v in row.values())]
+    nat_rows = [row for row in all_rows if any("local_nat_slot" in str(v) for v in row.values())]
 
     # Traiter les règles de filtrage
     print("Analyse des doublons de règles de filtrage...")
     rule_duplicates = find_duplicates(rules_rows)
-    rule_report = format_as_markdown(rule_duplicates)
+    rule_report = format_as_markdown(rule_duplicates, report_type='rules')
     write_report("rules.txt", rule_report)
     print(f"Rapport des règles de filtrage écrit dans rules.txt ({len(rule_duplicates)} doublons trouvés).")
 
     # Traiter les règles NAT
+    # D'abord, trier les lignes NAT par leur ligne d'origine pour un comptage relatif cohérent
+    nat_rows.sort(key=lambda r: r.get('original_line', 0))
+    # Ajouter le numéro de ligne relatif
+    for i, row in enumerate(nat_rows):
+        row['nat_line'] = i + 1
+
     print("Analyse des doublons de règles NAT...")
     nat_duplicates = find_duplicates(nat_rows)
-    nat_report = format_as_markdown(nat_duplicates)
+    nat_report = format_as_markdown(nat_duplicates, report_type='nat')
     write_report("nat.txt", nat_report)
     print(f"Rapport des règles NAT écrit dans nat.txt ({len(nat_duplicates)} doublons trouvés).")
 

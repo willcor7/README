@@ -94,25 +94,19 @@ def read_csv(path: Path) -> List[Dict[str, str]]:
 
 # --- Logique principale du détecteur de doublons ---
 
-def find_and_report_duplicates(rows: List[Dict[str, str]]):
+def find_duplicates(rows: List[Dict[str, str]]) -> Dict:
     """
-    Analyse les lignes, identifie les doublons en se basant sur une signature de règle,
-    et affiche un rapport.
+    Analyse les lignes et renvoie un dictionnaire des doublons trouvés.
     """
     seen_rules = {}
-
     for row in rows:
-        # Ignorer les séparateurs visuels qui n'ont pas de champs de règle
         if not pick(row, ["action", "from_src", "to_dest"]):
             continue
 
-        # Créer une signature normalisée pour la règle
         source = pick(row, CSV_ALIASES.get("from_src", ["from_src"])) or "any"
         destination = pick(row, CSV_ALIASES.get("to_dest", ["to_dest"])) or "any"
         dest_port = pick(row, CSV_ALIASES.get("service", ["service"])) or "any"
         protocol = pick(row, CSV_ALIASES.get("proto", ["proto"])) or "any"
-
-        # La signature est un tuple des champs clés
         signature = (source, destination, dest_port, protocol)
 
         occurrence = {
@@ -120,29 +114,42 @@ def find_and_report_duplicates(rows: List[Dict[str, str]]):
             "line": row.get("original_line", "N/A"),
             "name": pick(row, ["rule_name"]) or "Sans nom"
         }
-
         seen_rules.setdefault(signature, []).append(occurrence)
 
-    # Filtrer pour ne garder que les doublons (plus d'une occurrence)
-    duplicates = {sig: occs for sig, occs in seen_rules.items() if len(occs) > 1}
+    return {sig: occs for sig, occs in seen_rules.items() if len(occs) > 1}
 
-    print("\n--- Rapport des doublons ---")
+def format_as_markdown(duplicates: Dict) -> str:
+    """
+    Formate un dictionnaire de doublons en une table Markdown.
+    """
     if not duplicates:
-        print("Aucun doublon détecté.")
-        return
+        return "Aucun doublon détecté."
+
+    lines = [
+        "| Source | Destination | Port | Protocole | Occurrences |",
+        "|---|---|---|---|---|"
+    ]
 
     for sig, occs in duplicates.items():
-        print(f"\n[DOUBLON TROUVÉ] - Signature : (source: {sig[0]}, destination: {sig[1]}, port: {sig[2]}, proto: {sig[3]})")
-        print(f"  Cette règle a été trouvée {len(occs)} fois aux emplacements suivants :")
-        for occ in occs:
-            print(f"  - Fichier: {occ['file']}, Ligne: {occ['line']}, Nom de la règle: \"{occ['name']}\"")
+        source, dest, port, proto = sig
+        occurrences_str = "<br>".join(
+            [f"- Fichier: `{occ['file']}`, Ligne: `{occ['line']}`, Nom: `\"{occ['name']}\"`" for occ in occs]
+        )
+        lines.append(f"| {source} | {dest} | {port} | {proto} | {occurrences_str} |")
+
+    return "\n".join(lines)
+
+def write_report(filename: str, content: str):
+    """Écrit le contenu dans un fichier."""
+    with open(filename, "w", encoding="utf-8") as f:
+        f.write(content)
 
 def main():
     """
     Fonction principale pour exécuter la détection de doublons.
     """
     parser = argparse.ArgumentParser(
-        description="Détecte les règles de pare-feu en double dans un fichier CSV Stormshield."
+        description="Détecte les règles de pare-feu en double et les sépare en fichiers de règles et de NAT."
     )
     parser.add_argument(
         "--csv",
@@ -163,7 +170,6 @@ def main():
 
         print(f"Lecture du fichier : {file_path}")
         rows = read_csv(path)
-        # Ajouter le nom du fichier à chaque ligne pour un rapport plus clair
         for row in rows:
             row['source_file'] = file_path
         all_rows.extend(rows)
@@ -172,7 +178,23 @@ def main():
         print("Aucune ligne à analyser.")
         return
 
-    find_and_report_duplicates(all_rows)
+    # Séparer les lignes en règles (filter) et NAT
+    rules_rows = [row for row in all_rows if "local_filter_slot" in str(row.values())]
+    nat_rows = [row for row in all_rows if "local_nat_slot" in str(row.values())]
+
+    # Traiter les règles de filtrage
+    print("Analyse des doublons de règles de filtrage...")
+    rule_duplicates = find_duplicates(rules_rows)
+    rule_report = format_as_markdown(rule_duplicates)
+    write_report("rules.txt", rule_report)
+    print(f"Rapport des règles de filtrage écrit dans rules.txt ({len(rule_duplicates)} doublons trouvés).")
+
+    # Traiter les règles NAT
+    print("Analyse des doublons de règles NAT...")
+    nat_duplicates = find_duplicates(nat_rows)
+    nat_report = format_as_markdown(nat_duplicates)
+    write_report("nat.txt", nat_report)
+    print(f"Rapport des règles NAT écrit dans nat.txt ({len(nat_duplicates)} doublons trouvés).")
 
     print("\nAnalyse terminée.")
 

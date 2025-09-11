@@ -121,24 +121,14 @@ def find_duplicates(rows: List[Dict[str, str]]) -> Dict:
 
 def format_as_markdown(duplicates: Dict, report_type: str = 'rules') -> str:
     """
-    Formate un dictionnaire de doublons en une table Markdown détaillée et lisible.
-    Prend en charge un format spécial pour les règles NAT avec une numérotation de ligne relative.
+    Formate un dictionnaire de doublons en un rapport Markdown multi-sections.
+    Chaque groupe de doublons est présenté dans sa propre section pour une lisibilité maximale.
     """
     if not duplicates:
         return "Aucun doublon détecté."
 
+    report_lines = []
     is_nat_report = report_type == 'nat'
-
-    if is_nat_report:
-        lines = [
-            "| Source | Destination | Port | Protocole | Fichier | Ligne (Fichier) | Ligne (NAT) | Nom de la règle |",
-            "|---|---|---|---|---|---|---|---|"
-        ]
-    else:
-        lines = [
-            "| Source | Destination | Port | Protocole | Fichier | Ligne | Nom de la règle |",
-            "|---|---|---|---|---|---|---|"
-        ]
 
     # Trier les groupes de doublons par leur première apparition (fichier, ligne)
     sorted_signatures = sorted(duplicates.keys(), key=lambda sig: (duplicates[sig][0]['file'], duplicates[sig][0]['line']))
@@ -147,32 +137,44 @@ def format_as_markdown(duplicates: Dict, report_type: str = 'rules') -> str:
         occs = duplicates[sig]
         source, dest, port, proto = sig
 
+        # --- En-tête de la section pour ce groupe de doublons ---
+        header_title = f"### Doublon - Signature : (Source: `{source}`, Destination: `{dest}`, Port: `{port}`, Protocole: `{proto}`)"
+        report_lines.append(header_title)
+        report_lines.append("")  # Ligne vide pour l'espacement
+
+        # --- Tableau des occurrences pour ce groupe ---
+        if is_nat_report:
+            table_header = "| Fichier | Ligne (Fichier) | Ligne (NAT) | Nom de la règle |"
+            table_separator = "|---|---|---|---|"
+        else:
+            table_header = "| Fichier | Ligne | Nom de la règle |"
+            table_separator = "|---|---|---|"
+
+        report_lines.append(table_header)
+        report_lines.append(table_separator)
+
         # Trier les occurrences au sein d'un groupe par nom de fichier puis par numéro de ligne
         sort_key = 'nat_line' if is_nat_report else 'line'
         sorted_occs = sorted(occs, key=lambda x: (x['file'], x.get(sort_key, 0)))
 
-        for i, occ in enumerate(sorted_occs):
+        for occ in sorted_occs:
             file = f"`{occ['file']}`"
             line = f"`{occ['line']}`"
             name = f"`{occ['name']}`"
 
-            s, d, p, pr = (source, dest, port, proto) if i == 0 else ('', '', '', '')
-
             if is_nat_report:
                 nat_line_val = f"`{occ.get('nat_line', 'N/A')}`"
-                lines.append(f"| {s} | {d} | {p} | {pr} | {file} | {line} | {nat_line_val} | {name} |")
+                report_lines.append(f"| {file} | {line} | {nat_line_val} | {name} |")
             else:
-                lines.append(f"| {s} | {d} | {p} | {pr} | {file} | {line} | {name} |")
+                report_lines.append(f"| {file} | {line} | {name} |")
 
-        # Ajouter une ligne de séparation visuelle (compatible Markdown)
-        separator_row = "| " + " &nbsp; | " * (8 if is_nat_report else 7)
-        lines.append(separator_row)
+        # --- Séparateur horizontal pour le prochain groupe ---
+        if sig != sorted_signatures[-1]:
+            report_lines.append("")
+            report_lines.append("---")
+            report_lines.append("")
 
-    # Retirer la dernière ligne de séparation si elle existe
-    if lines and "&nbsp;" in lines[-1]:
-        lines.pop()
-
-    return "\n".join(lines)
+    return "\n".join(report_lines)
 
 def write_report(filename: str, content: str):
     """Écrit le contenu dans un fichier."""

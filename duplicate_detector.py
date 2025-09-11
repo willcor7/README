@@ -120,22 +120,39 @@ def find_duplicates(rows: List[Dict[str, str]]) -> Dict:
 
 def format_as_markdown(duplicates: Dict) -> str:
     """
-    Formate un dictionnaire de doublons en une table Markdown.
+    Formate un dictionnaire de doublons en une table Markdown détaillée et lisible.
+    Chaque occurrence de doublon est sur sa propre ligne pour plus de clarté.
     """
     if not duplicates:
         return "Aucun doublon détecté."
 
     lines = [
-        "| Source | Destination | Port | Protocole | Occurrences |",
-        "|---|---|---|---|---|"
+        "| Source | Destination | Port | Protocole | Fichier | Ligne | Nom de la règle |",
+        "|---|---|---|---|---|---|---|"
     ]
 
     for sig, occs in duplicates.items():
         source, dest, port, proto = sig
-        occurrences_str = "<br>".join(
-            [f"- Fichier: `{occ['file']}`, Ligne: `{occ['line']}`, Nom: `\"{occ['name']}\"`" for occ in occs]
-        )
-        lines.append(f"| {source} | {dest} | {port} | {proto} | {occurrences_str} |")
+        # Trier les occurrences par nom de fichier puis par numéro de ligne
+        sorted_occs = sorted(occs, key=lambda x: (x['file'], x['line']))
+        for i, occ in enumerate(sorted_occs):
+            file = f"`{occ['file']}`"
+            line = f"`{occ['line']}`"
+            name = f"`{occ['name']}`" # Les guillemets sont déjà dans le nom si présents
+
+            # Pour la lisibilité, on ne répète la signature que sur la première ligne du groupe
+            if i == 0:
+                lines.append(f"| {source} | {dest} | {port} | {proto} | {file} | {line} | {name} |")
+            else:
+                lines.append(f"| | | | | {file} | {line} | {name} |")
+
+        # Ajouter une ligne de séparation entre les groupes de doublons pour plus de clarté
+        lines.append("| | | | | | | |")
+
+
+    # Retirer la dernière ligne de séparation si elle existe
+    if lines[-1] == "| | | | | | | |":
+        lines.pop()
 
     return "\n".join(lines)
 

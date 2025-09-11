@@ -182,10 +182,13 @@ def write_report(filename: str, content: str):
     with open(filename, "w", encoding="utf-8") as f:
         f.write(content)
 
+from collections import Counter
+
 def generate_delete_script(duplicates: Dict, report_type: str, index: int, is_global: bool) -> List[str]:
     """
     Génère une liste de commandes CLI Stormshield pour supprimer les règles en double.
     Garde la première règle de chaque groupe et supprime les suivantes.
+    Utilise la position de la règle au lieu de son nom si le nom est ambigu (non unique) ou manquant.
     """
     commands = []
     rule_type = 'nat' if report_type == 'nat' else 'filter'
@@ -201,13 +204,23 @@ def generate_delete_script(duplicates: Dict, report_type: str, index: int, is_gl
         sort_key = 'nat_line' if report_type == 'nat' else 'line'
         sorted_occs = sorted(occs, key=lambda x: (x['file'], x.get(sort_key, 0)))
 
+        # Compter les noms dans le groupe pour détecter les noms non uniques
+        name_counts = Counter(occ['name'] for occ in sorted_occs)
+
         # Garder la première occurrence, supprimer les autres
         for occ_to_delete in sorted_occs[1:]:
             rule_name = occ_to_delete.get('name')
-            # Ne pas générer de commande si le nom de la règle est manquant
-            if rule_name and rule_name != "Sans nom":
+
+            # Décider d'utiliser la position si le nom est manquant ou non unique dans le groupe
+            use_position = not rule_name or rule_name == "Sans nom" or name_counts[rule_name] > 1
+
+            if use_position:
+                position = occ_to_delete.get('line')
+                command = f'CONFIG FILTER RULE REMOVE index={index} type={rule_type} position={position}{global_param}'
+            else:
                 command = f'CONFIG FILTER RULE REMOVE index={index} type={rule_type} name="{rule_name}"{global_param}'
-                commands.append(command)
+
+            commands.append(command)
 
     return commands
 

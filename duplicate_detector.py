@@ -210,17 +210,23 @@ def generate_delete_script(duplicates: Dict, report_type: str, index: int, is_gl
         # Garder la première occurrence, supprimer les autres
         for occ_to_delete in sorted_occs[1:]:
             rule_name = occ_to_delete.get('name')
+            command = None
 
-            # Décider d'utiliser la position si le nom est manquant ou non unique dans le groupe
-            use_position = not rule_name or rule_name == "Sans nom" or name_counts[rule_name] > 1
-
-            if use_position:
-                position = occ_to_delete.get('line')
-                command = f'CONFIG FILTER RULE REMOVE index={index} type={rule_type} position={position}{global_param}'
+            if report_type == 'nat':
+                # Pour le NAT, utiliser toujours le nom, comme demandé par l'utilisateur
+                if rule_name and rule_name != "Sans nom":
+                    command = f'CONFIG FILTER RULE REMOVE index={index} type={rule_type} name="{rule_name}"{global_param}'
             else:
-                command = f'CONFIG FILTER RULE REMOVE index={index} type={rule_type} name="{rule_name}"{global_param}'
+                # Pour le filtrage, garder la logique de sécurité (nom vs position)
+                use_position = not rule_name or rule_name == "Sans nom" or name_counts[rule_name] > 1
+                if use_position:
+                    position = occ_to_delete.get('line')
+                    command = f'CONFIG FILTER RULE REMOVE index={index} type={rule_type} position={position}{global_param}'
+                else:
+                    command = f'CONFIG FILTER RULE REMOVE index={index} type={rule_type} name="{rule_name}"{global_param}'
 
-            commands.append(command)
+            if command:
+                commands.append(command)
 
     return commands
 

@@ -85,8 +85,9 @@ def read_csv(path: Path) -> List[Dict[str, str]]:
         for key, value in row_dict.items():
             row_dict[key] = value.strip().strip('"') if value is not None else ""
 
-        # Ajouter le numéro de ligne original (entier) APRÈS le nettoyage
-        row_dict['original_line'] = header_line_index + 2 + i
+        # Ajouter le numéro de ligne comme attendu par l'utilisateur (commence à 1 après l'en-tête).
+        # L'ancien calcul `header_line_index + 2 + i` donnait le numéro de ligne réel dans le fichier.
+        row_dict['original_line'] = header_line_index + 1 + i
 
         final_rows.append(row_dict)
 

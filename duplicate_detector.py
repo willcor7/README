@@ -182,18 +182,59 @@ def write_report(filename: str, content: str):
     with open(filename, "w", encoding="utf-8") as f:
         f.write(content)
 
+def generate_delete_script(duplicates: Dict, report_type: str, index: int, is_global: bool) -> List[str]:
+    """
+    Génère une liste de commandes CLI Stormshield pour supprimer les règles en double.
+    Garde la première règle de chaque groupe et supprime les suivantes.
+    """
+    commands = []
+    rule_type = 'nat' if report_type == 'nat' else 'filter'
+    global_param = " global=1" if is_global else ""
+
+    # Trier les groupes de doublons pour une sortie cohérente
+    sorted_signatures = sorted(duplicates.keys(), key=lambda sig: (duplicates[sig][0]['file'], duplicates[sig][0]['line']))
+
+    for sig in sorted_signatures:
+        occs = duplicates[sig]
+
+        # Trier les occurrences pour décider laquelle garder (la première)
+        sort_key = 'nat_line' if report_type == 'nat' else 'line'
+        sorted_occs = sorted(occs, key=lambda x: (x['file'], x.get(sort_key, 0)))
+
+        # Garder la première occurrence, supprimer les autres
+        for occ_to_delete in sorted_occs[1:]:
+            rule_name = occ_to_delete.get('name')
+            # Ne pas générer de commande si le nom de la règle est manquant
+            if rule_name and rule_name != "Sans nom":
+                command = f'CONFIG FILTER RULE REMOVE index={index} type={rule_type} name="{rule_name}"{global_param}'
+                commands.append(command)
+
+    return commands
+
 def main():
     """
     Fonction principale pour exécuter la détection de doublons.
     """
     parser = argparse.ArgumentParser(
-        description="Détecte les règles de pare-feu en double et les sépare en fichiers de règles et de NAT."
+        description="Détecte les règles de pare-feu en double, génère des rapports et un script de suppression."
     )
     parser.add_argument(
         "--csv",
         required=True,
         nargs='+',
         help="Chemin vers un ou plusieurs fichiers CSV à analyser.",
+    )
+    parser.add_argument(
+        "--index",
+        type=int,
+        default=9,
+        help="Numéro du slot de la politique à utiliser pour la suppression (défaut: 9).",
+    )
+    parser.add_argument(
+        "--global",
+        dest='is_global', # Utiliser `is_global` pour éviter le mot-clé `global`
+        action="store_true",
+        help="Utiliser le contexte global pour la suppression (global=1).",
     )
     args = parser.parse_args()
 
@@ -239,6 +280,29 @@ def main():
     nat_report = format_as_markdown(nat_duplicates, report_type='nat')
     write_report("nat.txt", nat_report)
     print(f"Rapport des règles NAT écrit dans nat.txt ({len(nat_duplicates)} doublons trouvés).")
+
+    # --- Génération du script de suppression ---
+    print("\nGénération du script de suppression...")
+    delete_commands = []
+
+    rule_delete_commands = generate_delete_script(rule_duplicates, 'rules', args.index, args.is_global)
+    delete_commands.extend(rule_delete_commands)
+
+    nat_delete_commands = generate_delete_script(nat_duplicates, 'nat', args.index, args.is_global)
+    delete_commands.extend(nat_delete_commands)
+
+    if delete_commands:
+        # Ajouter la commande d'activation à la fin si des suppressions sont prévues
+        delete_commands.append("\n# Activer la nouvelle politique de filtrage")
+        delete_commands.append("CONFIG FILTER ACTIVATE")
+
+        script_content = "\n".join(delete_commands)
+        # Utiliser write_report pour écrire le script, c'est la même logique
+        write_report("Duplicate_to_delete.sh", script_content)
+        print(f"Script de suppression généré dans Duplicate_to_delete.sh ({len(rule_delete_commands)} commandes de règles, {len(nat_delete_commands)} commandes NAT).")
+    else:
+        print("Aucune commande de suppression à générer.")
+
 
     print("\nAnalyse terminée.")
 

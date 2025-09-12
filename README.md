@@ -71,12 +71,61 @@ python3 rule_comparator.py --source <source.csv> --final <final.csv> --output <c
 -   `--output PATH`: (Requis) Fichier de sortie pour les commandes.
 
 ### `duplicate_detector.py`
-Détecte les règles en double dans un ou plusieurs fichiers CSV.
+Analyse un ou plusieurs fichiers CSV pour trouver des règles en double, génère des rapports de lisibilité et un script de suppression CLI.
+
+Le script identifie les doublons en se basant sur une "signature" de règle (source, destination, port, protocole). Il sépare ensuite l'analyse pour les règles de **filtrage** et les règles de **NAT**, et génère trois fichiers en sortie :
+
+1.  **`rules.txt`** : Un rapport Markdown listant les doublons de règles de filtrage.
+2.  **`nat.txt`** : Un rapport Markdown listant les doublons de règles de NAT.
+3.  **`Duplicate_to_delete.sh`** : Un script shell contenant les commandes CLI Stormshield pour supprimer les doublons détectés.
+
+#### Utilisation
 ```bash
-python3 duplicate_detector.py --csv <fichier1.csv> <fichier2.csv>
+python3 duplicate_detector.py --csv <fichier1.csv> [<fichier2.csv>...] [options]
 ```
-**Argument :**
--   `--csv PATH`: (Requis, multiple) Fichier(s) CSV à analyser.
+
+#### Arguments
+-   `--csv PATH`: (Requis, multiple) Un ou plusieurs fichiers CSV à analyser.
+-   `--index NUM`: (Optionnel) Spécifie le `slot` de la politique à utiliser pour les commandes de suppression. La valeur par défaut est `9`.
+-   `--global`: (Optionnel) Utilise le contexte global (`global=1`) pour les commandes de suppression.
+
+#### Fichiers de Sortie Détaillés
+
+**Rapports (`rules.txt`, `nat.txt`)**
+
+Pour une lisibilité maximale, chaque groupe de doublons est présenté dans sa propre section, avec un en-tête décrivant la signature du doublon, suivi d'une table listant les occurrences.
+
+*Exemple de sortie dans `rules.txt` :*
+```markdown
+### Doublon - Signature : (Source: `1.1.1.1`, Destination: `any`, Port: `any`, Protocole: `any`)
+
+| Fichier | Ligne | Nom de la règle |
+|---|---|---|
+| `data.csv` | `1` | `Rule A` |
+| `data.csv` | `3` | `Rule B` |
+```
+
+Le rapport `nat.txt` inclut une colonne supplémentaire, `Ligne (NAT)`, qui correspond au numéro de ligne relatif dans la section NAT du firewall.
+
+**Script de Suppression (`Duplicate_to_delete.sh`)**
+
+Ce script est généré pour automatiser la suppression des doublons.
+
+- **Stratégie** : Pour chaque groupe, le script conserve la première règle et génère des commandes de suppression pour toutes les autres.
+- **Sécurité** : Pour les règles de filtrage, si un nom de règle n'est pas unique dans son groupe de doublons (ex: deux règles nommées "Block all") ou s'il est manquant, le script utilisera la `position` de la règle pour la supprimer en toute sécurité. Pour les règles de NAT, il utilisera toujours le `name`.
+
+*Exemple de sortie dans `Duplicate_to_delete.sh` :*
+```bash
+# Commandes pour supprimer les doublons de règles de filtrage
+CONFIG FILTER RULE REMOVE index=9 type=filter position=3
+CONFIG FILTER RULE REMOVE index=9 type=filter name="Unique Rule Name"
+
+# Commandes pour supprimer les doublons de règles de NAT
+CONFIG FILTER RULE REMOVE index=9 type=nat name="NAT Rule Name"
+
+# Activer la nouvelle politique de filtrage
+CONFIG FILTER ACTIVATE
+```
 
 ### `exporter.py`
 Exporte la configuration d'un équipement Stormshield.

@@ -97,7 +97,7 @@ Pour une lisibilité maximale, chaque groupe de doublons est présenté dans sa 
 
 *Exemple de sortie dans `rules.txt` :*
 ```markdown
-### Doublon - Signature : (Source: `1.1.1.1`, Destination: `any`, Port: `any`, Protocole: `any`)
+### Doublon - Signature : (Source: `1.1.1.1`, Destination: `any`, Port: `any`, Protocole: `any`, Action: `pass`)
 
 | Fichier | Ligne | Nom de la règle |
 |---|---|---|

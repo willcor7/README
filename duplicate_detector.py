@@ -14,11 +14,10 @@ Les commentaires et autres champs peuvent différer.
 
 import argparse
 import csv
-from pathlib import Path
-from typing import Dict, List
-
 import re
 from collections import Counter
+from pathlib import Path
+from typing import Dict, List
 
 # --- Logique réutilisée de converter.py pour une analyse cohérente ---
 
@@ -39,27 +38,6 @@ def pick(row: Dict[str, str], keys: List[str]) -> str:
             if v:
                 return v
     return ""
-
-def normalize_field(value: str) -> str:
-    """
-    Normalise un champ contenant potentiellement plusieurs objets séparés
-    par des virgules ou des points-virgules. Trie les objets pour rendre la
-    signature indépendante de l'ordre.
-    """
-    if not isinstance(value, str) or not value.strip():
-        return ""
-
-    # Utiliser re.split pour gérer plusieurs délimiteurs et des espaces incohérents
-    # Sépare par ',' ou ';', en ignorant les espaces autour
-    components = [comp.strip() for comp in re.split(r'[,;]', value) if comp.strip()]
-
-    # Si après le split on a plus d'un composant, on trie et on rejoint
-    if len(components) > 1:
-        components.sort()
-        return ",".join(components)
-
-    # Sinon, on retourne la valeur originale (nettoyée)
-    return value.strip()
 
 def read_csv(path: Path) -> List[Dict[str, str]]:
     """
@@ -117,12 +95,32 @@ def read_csv(path: Path) -> List[Dict[str, str]]:
 
     return final_rows
 
+def normalize_field(value: str) -> str:
+    """
+    Normalise un champ contenant potentiellement plusieurs objets séparés
+    par des virgules ou des points-virgules. Trie les objets pour rendre la
+    signature indépendante de l'ordre.
+    """
+    if not isinstance(value, str) or not value.strip():
+        return ""
+
+    components = [comp.strip() for comp in re.split(r'[,;]', value) if comp.strip()]
+
+    if len(components) > 1:
+        components.sort()
+        return ",".join(components)
+
+    return value.strip()
+
 # --- Logique principale du détecteur de doublons ---
 
-def find_duplicates(rows: List[Dict[str, str]]) -> Dict:
+def find_duplicates(rows: List[Dict[str, str]], debug: bool = False) -> Dict:
     """
     Analyse les lignes et renvoie un dictionnaire des doublons trouvés.
     """
+    if debug:
+        print("\n--- DÉBUT DU DÉBOGAGE : SIGNATURES GÉNÉRÉES ---")
+
     seen_rules = {}
     for row in rows:
         if not pick(row, ["action", "from_src", "to_dest"]):
@@ -135,11 +133,15 @@ def find_duplicates(rows: List[Dict[str, str]]) -> Dict:
         action = pick(row, ["action"]) or "any"
         signature = (source, destination, dest_port, protocol, action)
 
+        if debug:
+            line_num = row.get('original_line', 'N/A')
+            print(f"Ligne {line_num}: Signature = {signature}")
+
         occurrence = {
             "file": row.get("source_file", "N/A"),
             "line": row.get("original_line", "N/A"),
             "name": pick(row, ["rule_name"]) or "Sans nom",
-            "nat_line": row.get("nat_line")  # Sera None pour les règles de filtrage
+            "nat_line": row.get("nat_line")
         }
         seen_rules.setdefault(signature, []).append(occurrence)
 
@@ -148,27 +150,21 @@ def find_duplicates(rows: List[Dict[str, str]]) -> Dict:
 def format_as_markdown(duplicates: Dict, report_type: str = 'rules') -> str:
     """
     Formate un dictionnaire de doublons en un rapport Markdown multi-sections.
-    Chaque groupe de doublons est présenté dans sa propre section pour une lisibilité maximale.
     """
     if not duplicates:
         return "Aucun doublon détecté."
 
     report_lines = []
     is_nat_report = report_type == 'nat'
-
-    # Trier les groupes de doublons par leur première apparition (fichier, ligne)
     sorted_signatures = sorted(duplicates.keys(), key=lambda sig: (duplicates[sig][0]['file'], duplicates[sig][0]['line']))
 
     for sig in sorted_signatures:
         occs = duplicates[sig]
         source, dest, port, proto, action = sig
-
-        # --- En-tête de la section pour ce groupe de doublons ---
         header_title = f"### Doublon - Signature : (Source: `{source}`, Destination: `{dest}`, Port: `{port}`, Protocole: `{proto}`, Action: `{action}`)"
         report_lines.append(header_title)
-        report_lines.append("")  # Ligne vide pour l'espacement
+        report_lines.append("")
 
-        # --- Tableau des occurrences pour ce groupe ---
         if is_nat_report:
             table_header = "| Fichier | Ligne (Fichier) | Ligne (NAT) | Nom de la règle |"
             table_separator = "|---|---|---|---|"
@@ -179,7 +175,6 @@ def format_as_markdown(duplicates: Dict, report_type: str = 'rules') -> str:
         report_lines.append(table_header)
         report_lines.append(table_separator)
 
-        # Trier les occurrences au sein d'un groupe par nom de fichier puis par numéro de ligne
         sort_key = 'nat_line' if is_nat_report else 'line'
         sorted_occs = sorted(occs, key=lambda x: (x['file'], x.get(sort_key, 0)))
 
@@ -187,14 +182,12 @@ def format_as_markdown(duplicates: Dict, report_type: str = 'rules') -> str:
             file = f"`{occ['file']}`"
             line = f"`{occ['line']}`"
             name = f"`{occ['name']}`"
-
             if is_nat_report:
                 nat_line_val = f"`{occ.get('nat_line', 'N/A')}`"
                 report_lines.append(f"| {file} | {line} | {nat_line_val} | {name} |")
             else:
                 report_lines.append(f"| {file} | {line} | {name} |")
 
-        # --- Séparateur horizontal pour le prochain groupe ---
         if sig != sorted_signatures[-1]:
             report_lines.append("")
             report_lines.append("---")
@@ -202,47 +195,28 @@ def format_as_markdown(duplicates: Dict, report_type: str = 'rules') -> str:
 
     return "\n".join(report_lines)
 
-def write_report(filename: str, content: str):
-    """Écrit le contenu dans un fichier."""
-    with open(filename, "w", encoding="utf-8") as f:
-        f.write(content)
-
-from collections import Counter
-
 def generate_delete_script(duplicates: Dict, report_type: str, index: int, is_global: bool) -> List[str]:
     """
     Génère une liste de commandes CLI Stormshield pour supprimer les règles en double.
-    Garde la première règle de chaque groupe et supprime les suivantes.
-    Utilise la position de la règle au lieu de son nom si le nom est ambigu (non unique) ou manquant.
     """
     commands = []
     rule_type = 'nat' if report_type == 'nat' else 'filter'
     global_param = " global=1" if is_global else ""
-
-    # Trier les groupes de doublons pour une sortie cohérente
     sorted_signatures = sorted(duplicates.keys(), key=lambda sig: (duplicates[sig][0]['file'], duplicates[sig][0]['line']))
 
     for sig in sorted_signatures:
         occs = duplicates[sig]
-
-        # Trier les occurrences pour décider laquelle garder (la première)
         sort_key = 'nat_line' if report_type == 'nat' else 'line'
         sorted_occs = sorted(occs, key=lambda x: (x['file'], x.get(sort_key, 0)))
-
-        # Compter les noms dans le groupe pour détecter les noms non uniques
         name_counts = Counter(occ['name'] for occ in sorted_occs)
 
-        # Garder la première occurrence, supprimer les autres
         for occ_to_delete in sorted_occs[1:]:
             rule_name = occ_to_delete.get('name')
             command = None
-
             if report_type == 'nat':
-                # Pour le NAT, utiliser toujours le nom, comme demandé par l'utilisateur
                 if rule_name and rule_name != "Sans nom":
                     command = f'CONFIG FILTER RULE REMOVE index={index} type={rule_type} name="{rule_name}"{global_param}'
             else:
-                # Pour le filtrage, garder la logique de sécurité (nom vs position)
                 use_position = not rule_name or rule_name == "Sans nom" or name_counts[rule_name] > 1
                 if use_position:
                     position = occ_to_delete.get('line')
@@ -254,6 +228,11 @@ def generate_delete_script(duplicates: Dict, report_type: str, index: int, is_gl
                 commands.append(command)
 
     return commands
+
+def write_report(filename: str, content: str):
+    """Écrit le contenu dans un fichier."""
+    with open(filename, "w", encoding="utf-8") as f:
+        f.write(content)
 
 def main():
     """
@@ -276,9 +255,14 @@ def main():
     )
     parser.add_argument(
         "--global",
-        dest='is_global', # Utiliser `is_global` pour éviter le mot-clé `global`
+        dest='is_global',
         action="store_true",
         help="Utiliser le contexte global pour la suppression (global=1).",
+    )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Activer le mode de débogage pour afficher les signatures générées.",
     )
     args = parser.parse_args()
 
@@ -306,21 +290,19 @@ def main():
     nat_rows = [row for row in all_rows if any("local_nat_slot" in str(v) for v in row.values())]
 
     # Traiter les règles de filtrage
-    print("Analyse des doublons de règles de filtrage...")
-    rule_duplicates = find_duplicates(rules_rows)
+    print("\nAnalyse des doublons de règles de filtrage...")
+    rule_duplicates = find_duplicates(rules_rows, debug=args.debug)
     rule_report = format_as_markdown(rule_duplicates, report_type='rules')
     write_report("rules.txt", rule_report)
     print(f"Rapport des règles de filtrage écrit dans rules.txt ({len(rule_duplicates)} doublons trouvés).")
 
     # Traiter les règles NAT
-    # D'abord, trier les lignes NAT par leur ligne d'origine pour un comptage relatif cohérent
     nat_rows.sort(key=lambda r: r.get('original_line', 0))
-    # Ajouter le numéro de ligne relatif
     for i, row in enumerate(nat_rows):
         row['nat_line'] = i + 1
 
-    print("Analyse des doublons de règles NAT...")
-    nat_duplicates = find_duplicates(nat_rows)
+    print("\nAnalyse des doublons de règles NAT...")
+    nat_duplicates = find_duplicates(nat_rows, debug=args.debug)
     nat_report = format_as_markdown(nat_duplicates, report_type='nat')
     write_report("nat.txt", nat_report)
     print(f"Rapport des règles NAT écrit dans nat.txt ({len(nat_duplicates)} doublons trouvés).")
@@ -330,23 +312,25 @@ def main():
     delete_commands = []
 
     rule_delete_commands = generate_delete_script(rule_duplicates, 'rules', args.index, args.is_global)
-    delete_commands.extend(rule_delete_commands)
+    if rule_delete_commands:
+        delete_commands.append("# Commandes pour supprimer les doublons de règles de filtrage")
+        delete_commands.extend(rule_delete_commands)
 
     nat_delete_commands = generate_delete_script(nat_duplicates, 'nat', args.index, args.is_global)
-    delete_commands.extend(nat_delete_commands)
+    if nat_delete_commands:
+        if delete_commands: # Ajouter un espace si des commandes de règles existent déjà
+            delete_commands.append("")
+        delete_commands.append("# Commandes pour supprimer les doublons de règles de NAT")
+        delete_commands.extend(nat_delete_commands)
 
     if delete_commands:
-        # Ajouter la commande d'activation à la fin si des suppressions sont prévues
         delete_commands.append("\n# Activer la nouvelle politique de filtrage")
         delete_commands.append("CONFIG FILTER ACTIVATE")
-
         script_content = "\n".join(delete_commands)
-        # Utiliser write_report pour écrire le script, c'est la même logique
         write_report("Duplicate_to_delete.sh", script_content)
         print(f"Script de suppression généré dans Duplicate_to_delete.sh ({len(rule_delete_commands)} commandes de règles, {len(nat_delete_commands)} commandes NAT).")
     else:
         print("Aucune commande de suppression à générer.")
-
 
     print("\nAnalyse terminée.")
 

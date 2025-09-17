@@ -131,8 +131,9 @@ def find_duplicates(rows: List[Dict[str, str]]) -> Dict:
         source = normalize_field(pick(row, CSV_ALIASES.get("from_src", ["from_src"]))) or "any"
         destination = normalize_field(pick(row, CSV_ALIASES.get("to_dest", ["to_dest"]))) or "any"
         dest_port = normalize_field(pick(row, CSV_ALIASES.get("service", ["service"]))) or "any"
-        protocol = pick(row, CSV_ALIASES.get("proto", ["proto"])) or "any"  # Le protocole n'est généralement pas une liste
-        signature = (source, destination, dest_port, protocol)
+        protocol = pick(row, CSV_ALIASES.get("proto", ["proto"])) or "any"
+        action = pick(row, ["action"]) or "any"
+        signature = (source, destination, dest_port, protocol, action)
 
         occurrence = {
             "file": row.get("source_file", "N/A"),
@@ -160,10 +161,10 @@ def format_as_markdown(duplicates: Dict, report_type: str = 'rules') -> str:
 
     for sig in sorted_signatures:
         occs = duplicates[sig]
-        source, dest, port, proto = sig
+        source, dest, port, proto, action = sig
 
         # --- En-tête de la section pour ce groupe de doublons ---
-        header_title = f"### Doublon - Signature : (Source: `{source}`, Destination: `{dest}`, Port: `{port}`, Protocole: `{proto}`)"
+        header_title = f"### Doublon - Signature : (Source: `{source}`, Destination: `{dest}`, Port: `{port}`, Protocole: `{proto}`, Action: `{action}`)"
         report_lines.append(header_title)
         report_lines.append("")  # Ligne vide pour l'espacement
 

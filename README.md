@@ -73,7 +73,7 @@ python3 rule_comparator.py --source <source.csv> --final <final.csv> --output <c
 ### `duplicate_detector.py`
 Analyse un ou plusieurs fichiers CSV pour trouver des règles en double, génère des rapports de lisibilité et un script de suppression CLI.
 
-Le script identifie les doublons en se basant sur une "signature" de règle (source, destination, port, protocole). Il sépare ensuite l'analyse pour les règles de **filtrage** et les règles de **NAT**, et génère trois fichiers en sortie :
+Le script identifie les doublons en se basant sur une "signature" de règle (source, destination, port, protocole, action). Il sépare ensuite l'analyse pour les règles de **filtrage** et les règles de **NAT**, et génère trois fichiers en sortie :
 
 1.  **`rules.txt`** : Un rapport Markdown listant les doublons de règles de filtrage.
 2.  **`nat.txt`** : Un rapport Markdown listant les doublons de règles de NAT.

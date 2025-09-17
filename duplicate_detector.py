@@ -17,6 +17,9 @@ import csv
 from pathlib import Path
 from typing import Dict, List
 
+import re
+from collections import Counter
+
 # --- Logique réutilisée de converter.py pour une analyse cohérente ---
 
 CSV_ALIASES = {
@@ -36,6 +39,27 @@ def pick(row: Dict[str, str], keys: List[str]) -> str:
             if v:
                 return v
     return ""
+
+def normalize_field(value: str) -> str:
+    """
+    Normalise un champ contenant potentiellement plusieurs objets séparés
+    par des virgules ou des points-virgules. Trie les objets pour rendre la
+    signature indépendante de l'ordre.
+    """
+    if not isinstance(value, str) or not value.strip():
+        return ""
+
+    # Utiliser re.split pour gérer plusieurs délimiteurs et des espaces incohérents
+    # Sépare par ',' ou ';', en ignorant les espaces autour
+    components = [comp.strip() for comp in re.split(r'[,;]', value) if comp.strip()]
+
+    # Si après le split on a plus d'un composant, on trie et on rejoint
+    if len(components) > 1:
+        components.sort()
+        return ",".join(components)
+
+    # Sinon, on retourne la valeur originale (nettoyée)
+    return value.strip()
 
 def read_csv(path: Path) -> List[Dict[str, str]]:
     """
@@ -104,10 +128,10 @@ def find_duplicates(rows: List[Dict[str, str]]) -> Dict:
         if not pick(row, ["action", "from_src", "to_dest"]):
             continue
 
-        source = pick(row, CSV_ALIASES.get("from_src", ["from_src"])) or "any"
-        destination = pick(row, CSV_ALIASES.get("to_dest", ["to_dest"])) or "any"
-        dest_port = pick(row, CSV_ALIASES.get("service", ["service"])) or "any"
-        protocol = pick(row, CSV_ALIASES.get("proto", ["proto"])) or "any"
+        source = normalize_field(pick(row, CSV_ALIASES.get("from_src", ["from_src"]))) or "any"
+        destination = normalize_field(pick(row, CSV_ALIASES.get("to_dest", ["to_dest"]))) or "any"
+        dest_port = normalize_field(pick(row, CSV_ALIASES.get("service", ["service"]))) or "any"
+        protocol = pick(row, CSV_ALIASES.get("proto", ["proto"])) or "any"  # Le protocole n'est généralement pas une liste
         signature = (source, destination, dest_port, protocol)
 
         occurrence = {
